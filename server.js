@@ -37,11 +37,39 @@ const now = () => Date.now();
 function hashPw(pw, salt) { return crypto.scryptSync(pw, salt, 32).toString('hex'); }
 function newToken() { return crypto.randomBytes(24).toString('hex'); }
 
-function loadQuestions() {
+const validQ = q => q && typeof q.q === 'string' && q.q.trim() && Array.isArray(q.options) &&
+  q.options.length >= 2 && q.options.length <= 6 && q.options.every(o => typeof o === 'string' && o.trim()) &&
+  Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length;
+const newId = () => crypto.randomBytes(5).toString('hex');
+// أول تشغيل: نملأ بنك الأسئلة من questions.json
+if (!Array.isArray(db.questions)) {
   let arr = [];
-  try { arr = JSON.parse(fs.readFileSync(QUESTIONS_FILE, 'utf8')); } catch (e) { return []; }
-  return arr.filter(q => q && typeof q.q === 'string' && Array.isArray(q.options) &&
-    q.options.length >= 2 && Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length);
+  try { arr = JSON.parse(fs.readFileSync(QUESTIONS_FILE, 'utf8')); } catch (e) {}
+  db.questions = arr.filter(validQ).map(q => ({ id: newId(), q: q.q.trim(), options: q.options.map(o => o.trim()), answer: q.answer }));
+  save();
+}
+function loadQuestions() { return db.questions.filter(validQ); }
+
+// نص جماعي: كل سؤال في فقرة، أول سطر السؤال، ثم الاختيارات، والصحيح يبدأ بـ *
+function parseBulk(text) {
+  const out = [], errors = [];
+  const t = String(text || '').trim();
+  if (t.startsWith('[')) {
+    try {
+      JSON.parse(t).forEach((q, i) => validQ(q) ? out.push({ q: q.q.trim(), options: q.options.map(o => o.trim()), answer: q.answer }) : errors.push('عنصر JSON رقم ' + (i + 1) + ' غير صالح'));
+      return { out, errors };
+    } catch (e) { return { out, errors: ['صيغة JSON غير صحيحة'] }; }
+  }
+  t.split(/\n\s*\n/).filter(b => b.trim()).forEach((block, i) => {
+    const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+    const q = lines[0], opts = lines.slice(1);
+    const marked = opts.map((o, k) => /^[*✓]/.test(o) ? k : -1).filter(k => k >= 0);
+    const options = opts.map(o => o.replace(/^[*✓]\s*/, '').trim());
+    if (opts.length < 2 || opts.length > 6) errors.push('السؤال ' + (i + 1) + ': لازم من 2 إلى 6 اختيارات');
+    else if (marked.length !== 1) errors.push('السؤال ' + (i + 1) + ': علّم الإجابة الصحيحة بنجمة * واحدة');
+    else out.push({ q, options, answer: marked[0] });
+  });
+  return { out, errors };
 }
 function shuffle(a) {
   a = a.slice();
@@ -157,10 +185,10 @@ function send(res, code, obj, headers = {}) {
   res.writeHead(code, Object.assign({ 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' }, headers));
   res.end(body);
 }
-function readBody(req) {
+function readBody(req, max = 10000) {
   return new Promise((resolve) => {
     let d = '';
-    req.on('data', c => { d += c; if (d.length > 10000) req.destroy(); });
+    req.on('data', c => { d += c; if (d.length > max) req.destroy(); });
     req.on('end', () => { try { resolve(JSON.parse(d || '{}')); } catch (e) { resolve({}); } });
   });
 }
@@ -183,9 +211,45 @@ function tooMany(ip) {
   return a.length > 20;
 }
 
+function isAdmin(req) {
+  const pw = process.env.ADMIN_PASSWORD;
+  const given = String(req.headers['x-admin-password'] || '');
+  if (!pw) return false;
+  const a = crypto.createHash('sha256').update(given).digest(), b = crypto.createHash('sha256').update(pw).digest();
+  return crypto.timingSafeEqual(a, b);
+}
+
+async function adminApi(req, res, url, ip) {
+  if (!process.env.ADMIN_PASSWORD) return send(res, 503, { error: 'لم يتم ضبط ADMIN_PASSWORD على الخادم' });
+  if (tooMany(ip)) return send(res, 429, { error: 'محاولات كثيرة، انتظر قليلاً' });
+  if (!isAdmin(req)) return send(res, 401, { error: 'كلمة مرور الأدمن غير صحيحة' });
+  if (url === '/api/admin/questions' && req.method === 'GET')
+    return send(res, 200, { questions: db.questions, users: Object.keys(db.users).length, matches: Object.keys(db.matches).length, perMatch: QUESTIONS_PER_MATCH });
+  if (url === '/api/admin/add' && req.method === 'POST') {
+    const b = await readBody(req);
+    const q = { q: String(b.q || '').trim(), options: Array.isArray(b.options) ? b.options.map(o => String(o).trim()).filter(Boolean) : [], answer: b.answer };
+    if (!validQ(q)) return send(res, 400, { error: 'السؤال غير مكتمل: اكتب السؤال و2-6 اختيارات وحدد الصحيح' });
+    db.questions.push(Object.assign({ id: newId() }, q)); save();
+    return send(res, 200, { ok: true });
+  }
+  if (url === '/api/admin/bulk' && req.method === 'POST') {
+    const b = await readBody(req, 500000);
+    const { out, errors } = parseBulk(b.text);
+    out.forEach(q => db.questions.push(Object.assign({ id: newId() }, q))); if (out.length) save();
+    return send(res, 200, { added: out.length, errors });
+  }
+  if (url === '/api/admin/delete' && req.method === 'POST') {
+    const b = await readBody(req);
+    db.questions = db.questions.filter(q => q.id !== b.id); save();
+    return send(res, 200, { ok: true });
+  }
+  return send(res, 404, { error: 'غير موجود' });
+}
+
 async function api(req, res, url) {
   const me = getUser(req);
   const ip = req.socket.remoteAddress;
+  if (url.startsWith('/api/admin/')) return adminApi(req, res, url, ip);
 
   if (url === '/api/register' && req.method === 'POST') {
     if (tooMany(ip)) return send(res, 429, { error: 'محاولات كثيرة، انتظر قليلاً' });
@@ -277,9 +341,10 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = req.url.split('?')[0];
     if (url.startsWith('/api/')) return await api(req, res, url);
-    if (url !== '/' && url !== '/index.html') { res.writeHead(404); return res.end('Not found'); }
-    fs.readFile(path.join(__dirname, 'index.html'), (err, buf) => {
-      if (err) { res.writeHead(500); return res.end('index.html missing'); }
+    const page = url === '/admin' || url === '/admin.html' ? 'admin.html' : (url === '/' || url === '/index.html' ? 'index.html' : null);
+    if (!page) { res.writeHead(404); return res.end('Not found'); }
+    fs.readFile(path.join(__dirname, page), (err, buf) => {
+      if (err) { res.writeHead(500); return res.end('page missing'); }
       res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(buf);
     });

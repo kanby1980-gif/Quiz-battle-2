@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<title>لوحة التحكم — بنك الأسئلة</title>
+<style>
+:root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#f1f5f9;--mut:#94a3b8;--pri:#6366f1;--ok:#22c55e;--bad:#ef4444}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif}
+#app{max-width:600px;margin:0 auto;padding:16px}
+h1{font-size:20px;text-align:center}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+input,textarea{width:100%;padding:12px;margin:5px 0;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--txt);font-size:16px;font-family:inherit}
+textarea{min-height:200px}
+button{width:100%;padding:13px;border:0;border-radius:11px;background:var(--pri);color:#fff;font-size:16px;font-weight:600;margin-top:6px;cursor:pointer}
+button.sec{background:transparent;border:1px solid var(--line);color:var(--mut)}
+button.del{width:auto;background:transparent;color:var(--bad);border:1px solid var(--bad);padding:6px 12px;font-size:13px;margin:0}
+.tabs{display:flex;gap:6px;margin-bottom:12px}.tabs button{margin:0;padding:10px 4px;font-size:14px;background:transparent;border:1px solid var(--line);color:var(--mut)}.tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
+.opt{display:flex;align-items:center;gap:8px}.opt input[type=radio]{width:22px;height:22px;flex:none}
+.msg{min-height:20px;font-size:14px;margin-top:6px;white-space:pre-wrap}.ok{color:var(--ok)}.bad{color:var(--bad)}
+.item{border-top:1px solid var(--line);padding:10px 0;font-size:15px}.item small{color:var(--mut);display:block;margin:4px 0}
+.hint{color:var(--mut);font-size:13px;line-height:1.7}
+pre{background:#0b1220;padding:10px;border-radius:8px;font-size:13px;white-space:pre-wrap;direction:rtl}
+</style>
+</head>
+<body><div id="app"></div>
+<script>
+const $ = document.getElementById('app');
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+let pw = ''; try { pw = sessionStorage.getItem('apw') || ''; } catch (e) {}
+let tab = 'add', data = null;
+
+async function call(path, body) {
+  const r = await fetch('/api/admin/' + path, {
+    method: body ? 'POST' : 'GET',
+    headers: {'Content-Type': 'application/json', 'x-admin-password': pw},
+    body: body ? JSON.stringify(body) : undefined
+  });
+  let j = {}; try { j = await r.json(); } catch (e) {}
+  j._s = r.status; return j;
+}
+
+function login(err) {
+  $.innerHTML = `<h1>🔐 لوحة التحكم</h1><div class="card">
+    <input id="p" type="password" placeholder="كلمة مرور الأدمن">
+    <button id="go">دخول</button><div class="msg bad">${esc(err||'')}</div></div>`;
+  const go = async () => {
+    pw = document.getElementById('p').value;
+    const d = await call('questions');
+    if (d._s === 200) { try { sessionStorage.setItem('apw', pw); } catch (e) {} data = d; render(); }
+    else login(d.error || 'خطأ');
+  };
+  document.getElementById('go').onclick = go;
+  document.getElementById('p').onkeydown = e => { if (e.key === 'Enter') go(); };
+}
+
+async function load() {
+  const d = await call('questions');
+  if (d._s !== 200) return login(d.error);
+  data = d; render();
+}
+
+function render() {
+  const n = data.questions.length;
+  const warn = n < data.perMatch ? `<div class="msg bad">⚠️ عدد الأسئلة أقل من ${data.perMatch}. المباراة ستستخدم الأسئلة المتاحة فقط.</div>` : '';
+  let body = '';
+  if (tab === 'add') {
+    body = `<div class="card"><b>إضافة سؤال</b>
+      <input id="q" placeholder="نص السؤال">
+      ${[0,1,2,3].map(i=>`<div class="opt"><input type="radio" name="c" value="${i}" ${i===0?'checked':''}><input class="o" placeholder="الاختيار ${i+1}"></div>`).join('')}
+      <div class="hint">حدد الدائرة بجانب الإجابة الصحيحة. (الاختيارات الفارغة تُتجاهل)</div>
+      <button id="add">إضافة</button><div class="msg" id="m"></div></div>`;
+  } else if (tab === 'bulk') {
+    body = `<div class="card"><b>إضافة مجموعة أسئلة دفعة واحدة</b>
+      <div class="hint">اكتب كل سؤال في فقرة، أول سطر السؤال، ثم كل اختيار في سطر، وضع * قبل الإجابة الصحيحة. اترك سطراً فارغاً بين الأسئلة:</div>
+      <pre>ما عاصمة مصر؟\n*القاهرة\nالإسكندرية\nأسوان\n\nكم يساوي 3 × 4؟\n10\n*12\n14</pre>
+      <textarea id="t" placeholder="الصق الأسئلة هنا"></textarea>
+      <button id="bulk">إضافة الكل</button><div class="msg" id="m"></div></div>`;
+  } else {
+    body = `<div class="card"><button class="sec" id="exp">نسخ كل الأسئلة (JSON) للنسخ الاحتياطي</button><div class="msg" id="m"></div></div>` +
+      `<div class="card">${data.questions.slice().reverse().map(q=>`<div class="item"><div>${esc(q.q)}</div><small>${q.options.map((o,i)=>(i===q.answer?'✅ ':'• ')+esc(o)).join(' &nbsp; ')}</small><button class="del" data-id="${q.id}">حذف</button></div>`).join('') || '<div class="hint">لا توجد أسئلة</div>'}</div>`;
+  }
+  $.innerHTML = `<h1>🛠️ بنك الأسئلة</h1>
+    <div class="card" style="text-align:center">عدد الأسئلة: <b>${n}</b> · اللاعبون: <b>${data.users}</b> · المباريات: <b>${data.matches}</b>${warn}</div>
+    <div class="tabs"><button data-t="add" class="${tab==='add'?'on':''}">سؤال</button><button data-t="bulk" class="${tab==='bulk'?'on':''}">مجموعة</button><button data-t="list" class="${tab==='list'?'on':''}">الأسئلة</button></div>${body}`;
+  $.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  const msg = (t, ok) => { const m = document.getElementById('m'); if (m) { m.textContent = t; m.className = 'msg ' + (ok ? 'ok' : 'bad'); } };
+  if (tab === 'add') document.getElementById('add').onclick = async () => {
+    const opts = [...document.querySelectorAll('.o')].map(i => i.value.trim());
+    let ans = parseInt(document.querySelector('input[name=c]:checked').value);
+    const options = opts.filter(Boolean);
+    const correctText = opts[ans];
+    if (!correctText) return msg('الإجابة الصحيحة المحددة فارغة', false);
+    const r = await call('add', {q: document.getElementById('q').value, options, answer: options.indexOf(correctText)});
+    if (r.ok) { const d = await call('questions'); data = d; render(); document.getElementById('m').textContent = ''; msg('✅ تمت الإضافة', true); }
+    else msg(r.error || 'خطأ', false);
+  };
+  if (tab === 'bulk') document.getElementById('bulk').onclick = async () => {
+    const r = await call('bulk', {text: document.getElementById('t').value});
+    const d = await call('questions'); data = d;
+    const errs = (r.errors || []).join('\n');
+    render(); msg('تمت إضافة ' + (r.added || 0) + ' سؤال' + (errs ? '\n' + errs : ''), !errs);
+  };
+  if (tab === 'list') {
+    $.querySelectorAll('.del').forEach(b => b.onclick = async () => {
+      if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'تأكيد الحذف؟'; return; }
+      await call('delete', {id: b.dataset.id}); data = await call('questions'); render();
+    });
+    document.getElementById('exp').onclick = async () => {
+      const txt = JSON.stringify(data.questions.map(({q,options,answer})=>({q,options,answer})), null, 1);
+      try { await navigator.clipboard.writeText(txt); msg('✅ تم النسخ. الصقه في ملف questions.json على GitHub لحفظه دائماً', true); }
+      catch (e) { $.insertAdjacentHTML('beforeend', '<div class="card"><textarea readonly>' + esc(txt) + '</textarea></div>'); msg('انسخ النص من الأسفل', true); }
+    };
+  }
+}
+if (pw) load(); else login();
+</script>
+</body></html>
