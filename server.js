@@ -7,7 +7,6 @@ const crypto = require('crypto');
 const PORT = process.env.PORT || 3000;
 const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
 const QUESTIONS_FILE = path.join(__dirname, 'questions.json');
-const PUBLIC_DIR = path.join(__dirname, 'public');
 
 const QUESTIONS_PER_MATCH = 15;
 const SECONDS_PER_QUESTION = 20;
@@ -274,16 +273,14 @@ async function api(req, res, url) {
   return send(res, 404, { error: 'غير موجود' });
 }
 
-const MIME = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript', '.css': 'text/css', '.svg': 'image/svg+xml', '.png': 'image/png', '.ico': 'image/x-icon' };
 const server = http.createServer(async (req, res) => {
   try {
     const url = req.url.split('?')[0];
     if (url.startsWith('/api/')) return await api(req, res, url);
-    let file = path.normalize(path.join(PUBLIC_DIR, url === '/' ? 'index.html' : url));
-    if (!file.startsWith(PUBLIC_DIR)) { res.writeHead(403); return res.end(); }
-    fs.readFile(file, (err, buf) => {
-      if (err) { res.writeHead(404); return res.end('Not found'); }
-      res.writeHead(200, { 'Content-Type': MIME[path.extname(file)] || 'application/octet-stream' });
+    if (url !== '/' && url !== '/index.html') { res.writeHead(404); return res.end('Not found'); }
+    fs.readFile(path.join(__dirname, 'index.html'), (err, buf) => {
+      if (err) { res.writeHead(500); return res.end('index.html missing'); }
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
       res.end(buf);
     });
   } catch (e) { console.error(e); send(res, 500, { error: 'خطأ في الخادم' }); }
