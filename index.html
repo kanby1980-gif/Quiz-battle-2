@@ -26,6 +26,9 @@ button:disabled{opacity:.5}
 .opt{background:#0b1220;border:2px solid var(--line);color:var(--txt);text-align:right;font-weight:500;margin-top:10px}
 .opt.sel{border-color:var(--pri);background:#1e1b4b}
 .center{text-align:center}
+button.cat{display:flex;justify-content:space-between;align-items:center;background:#0b1220;border:2px solid var(--line);font-weight:600}
+button.cat small{color:var(--mut);font-weight:400;font-size:13px}
+button.cat:not(:disabled):active{border-color:var(--pri)}
 .big{font-size:56px;font-weight:800;margin:10px 0}
 .win{color:var(--ok)}.lose{color:var(--bad)}.draw{color:var(--warn)}
 .spin{width:44px;height:44px;border:4px solid var(--line);border-top-color:var(--pri);border-radius:50%;margin:16px auto;animation:s 1s linear infinite}
@@ -93,7 +96,8 @@ async function renderHome() {
   clearInterval(tick); tick = null; curKey = '';
   const p = state.profile, last = state.last;
   if (last && !showBoard) { return renderResult(last); }
-  const key = 'home' + showBoard + JSON.stringify(p);
+  const cr = await api('categories'); const cats = cr.categories || [];
+  const key = 'home' + showBoard + JSON.stringify(p) + JSON.stringify(cats);
   if (key === curKey) return; curKey = key;
   let board = '';
   if (showBoard) {
@@ -103,10 +107,14 @@ async function renderHome() {
   }
   $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1>
     <div class="card center"><div style="color:var(--mut);margin-bottom:8px">أهلاً ${esc(p.username)}</div>${statsHtml(p)}</div>
-    <button id="play">⚔️ ابدأ تحدّي</button>
+    <div class="card"><b>⚔️ اختر المجموعة وابدأ التحدّي</b><div id="cats">${
+      cats.length ? cats.map(c => `<button class="cat" data-id="${esc(c.id)}" ${c.playable?'':'disabled'}>${esc(c.name)} <small>${c.playable ? c.count + ' سؤال' : 'قريباً'}</small></button>`).join('')
+                  : '<div style="color:var(--mut);margin-top:8px">لا توجد مجموعات بعد</div>'}</div></div>
     <button class="sec" id="lb">${showBoard?'إخفاء المتصدرين':'المتصدرون'}</button>
     <button class="sec" id="out">تسجيل الخروج</button><div class="err" id="e"></div>${board}`;
-  play.onclick = async () => { const r = await api('queue/join', {}); if (r.error) e.textContent = r.error; else refresh(); };
+  document.querySelectorAll('.cat').forEach(b => b.onclick = async () => {
+    const r = await api('queue/join', {cat: b.dataset.id}); if (r.error) e.textContent = r.error; else { curKey = ''; refresh(); }
+  });
   lb.onclick = () => { showBoard = !showBoard; curKey=''; renderHome(); };
   out.onclick = async () => { await api('logout', {}); state = null; stopTimers(); renderAuth(); };
 }
@@ -114,7 +122,7 @@ async function renderHome() {
 function renderWaiting() {
   clearInterval(tick); tick = null;
   if (curKey === 'wait') return; curKey = 'wait';
-  $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1><div class="card center"><div class="spin"></div><div>جارٍ البحث عن منافس...</div><div style="color:var(--mut);font-size:14px;margin-top:6px">سيبدأ التحدّي تلقائياً عند دخول لاعب آخر</div></div>
+  $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1><div class="card center"><div class="spin"></div><div>جارٍ البحث عن منافس في «${esc(state.catName || '')}»...</div><div style="color:var(--mut);font-size:14px;margin-top:6px">سيبدأ التحدّي تلقائياً عند دخول لاعب آخر</div></div>
     <button class="sec" id="cancel">إلغاء</button>`;
   cancel.onclick = async () => { await api('queue/leave', {}); curKey=''; refresh(); };
 }
@@ -129,7 +137,7 @@ function renderMatch(m) {
   }
   const c = m.current; if (!c) return;
   const key = 'q' + m.id + c.index;
-  const header = () => `<div class="top"><span>⚔️ ضد ${esc(m.opponent)}</span><span>السؤال ${c.index+1} / ${m.total}</span></div>
+  const header = () => `<div class="top"><span>⚔️ ضد ${esc(m.opponent)} · ${esc(m.catName || '')}</span><span>السؤال ${c.index+1} / ${m.total}</span></div>
     <div class="bar"><i style="width:${(c.index/m.total)*100}%"></i></div>
     <div class="top"><span>أجبتَ: ${m.myAnswered}</span><span>المنافس أجاب: ${m.oppAnswered}</span></div>`;
   if (curKey === key) return; // لا نعيد الرسم أثناء الإجابة
@@ -169,12 +177,12 @@ function renderResult(m) {
   $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1><div class="card center">
     <div class="big ${t[1]}">${t[0]}</div>
     <div style="font-size:18px">أنت ${m.myScore} — ${esc(m.opponent)} ${m.oppScore}</div></div>
-    <button id="again">⚔️ تحدّي جديد</button><button class="sec" id="home">الرئيسية</button>
+    <button id="again">⚔️ العب «${esc(m.catName || '')}» مرة أخرى</button><button class="sec" id="home">اختيار مجموعة أخرى</button>
     <div class="card" style="margin-top:14px"><b>مراجعة الإجابات</b>${m.review.map((r,i)=>{
       const ok = r.mine === r.correct;
       return `<div class="rev"><div>${i+1}. ${esc(r.q)}</div><div class="a ${ok?'good':'badc'}">${ok?'✓':'✗'} إجابتك: ${r.mine==null?'لم تُجب':esc(r.options[r.mine])}</div>${ok?'':`<div class="a good">الصحيح: ${esc(r.options[r.correct])}</div>`}</div>`;}).join('')}</div>`;
   const dismiss = async () => { await api('dismiss', {}); curKey=''; };
-  again.onclick = async () => { await dismiss(); await api('queue/join', {}); refresh(); };
+  again.onclick = async () => { await dismiss(); await api('queue/join', {cat: m.cat}); refresh(); };
   home.onclick = async () => { await dismiss(); refresh(); };
 }
 

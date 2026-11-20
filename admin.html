@@ -14,6 +14,8 @@ h1{font-size:20px;text-align:center}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
 input,textarea{width:100%;padding:12px;margin:5px 0;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--txt);font-size:16px;font-family:inherit}
 textarea{min-height:200px}
+select{width:100%;padding:12px;margin:5px 0;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--txt);font-size:16px;font-family:inherit}
+.row{display:flex;gap:6px;align-items:center}.row button{width:auto;margin:0;padding:8px 12px;font-size:13px}.row input{margin:0}
 button{width:100%;padding:13px;border:0;border-radius:11px;background:var(--pri);color:#fff;font-size:16px;font-weight:600;margin-top:6px;cursor:pointer}
 button.sec{background:transparent;border:1px solid var(--line);color:var(--mut)}
 button.del{width:auto;background:transparent;color:var(--bad);border:1px solid var(--bad);padding:6px 12px;font-size:13px;margin:0}
@@ -30,7 +32,7 @@ pre{background:#0b1220;padding:10px;border-radius:8px;font-size:13px;white-space
 const $ = document.getElementById('app');
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let pw = ''; try { pw = sessionStorage.getItem('apw') || ''; } catch (e) {}
-let tab = 'add', data = null;
+let tab = 'cats', data = null, curCat = '';
 
 async function call(path, body) {
   const r = await fetch('/api/admin/' + path, {
@@ -41,7 +43,6 @@ async function call(path, body) {
   let j = {}; try { j = await r.json(); } catch (e) {}
   j._s = r.status; return j;
 }
-
 function login(err) {
   $.innerHTML = `<h1>🔐 لوحة التحكم</h1><div class="card">
     <input id="p" type="password" placeholder="كلمة مرور الأدمن">
@@ -55,66 +56,87 @@ function login(err) {
   document.getElementById('go').onclick = go;
   document.getElementById('p').onkeydown = e => { if (e.key === 'Enter') go(); };
 }
-
-async function load() {
-  const d = await call('questions');
-  if (d._s !== 200) return login(d.error);
-  data = d; render();
-}
+async function reload() { const d = await call('questions'); if (d._s !== 200) return login(d.error); data = d; render(); }
+const catName = id => (data.categories.find(c => c.id === id) || {name: '؟'}).name;
+const catSelect = () => data.categories.length
+  ? `<select id="cat">${data.categories.map(c => `<option value="${esc(c.id)}" ${c.id===curCat?'selected':''}>${esc(c.name)} (${c.count})</option>`).join('')}</select>`
+  : '<div class="msg bad">أنشئ مجموعة أولاً من تبويب «المجموعات»</div>';
 
 function render() {
+  if (!curCat || !data.categories.find(c => c.id === curCat)) curCat = (data.categories[0] || {}).id || '';
   const n = data.questions.length;
-  const warn = n < data.perMatch ? `<div class="msg bad">⚠️ عدد الأسئلة أقل من ${data.perMatch}. المباراة ستستخدم الأسئلة المتاحة فقط.</div>` : '';
   let body = '';
-  if (tab === 'add') {
-    body = `<div class="card"><b>إضافة سؤال</b>
+  if (tab === 'cats') {
+    body = `<div class="card"><b>إضافة مجموعة جديدة</b>
+      <div class="row"><input id="newcat" placeholder="مثال: تاريخ"><button id="addcat">إضافة</button></div><div class="msg" id="m"></div></div>
+      <div class="card"><b>المجموعات</b>${data.categories.map(c => `<div class="item">
+        <div class="row"><input class="rn" data-id="${esc(c.id)}" value="${esc(c.name)}"><button class="sec rb" data-id="${esc(c.id)}">حفظ الاسم</button></div>
+        <small>${c.count} سؤال ${c.count < data.min ? '— لن تظهر للّاعبين متاحة قبل ' + data.min + ' أسئلة على الأقل' : '— متاحة للّاعبين ✅'}</small>
+        <button class="del" data-id="${esc(c.id)}">حذف المجموعة وأسئلتها</button></div>`).join('') || '<div class="hint">لا توجد مجموعات</div>'}</div>`;
+  } else if (tab === 'add') {
+    body = `<div class="card"><b>إضافة سؤال</b>${catSelect()}
       <input id="q" placeholder="نص السؤال">
       ${[0,1,2,3].map(i=>`<div class="opt"><input type="radio" name="c" value="${i}" ${i===0?'checked':''}><input class="o" placeholder="الاختيار ${i+1}"></div>`).join('')}
       <div class="hint">حدد الدائرة بجانب الإجابة الصحيحة. (الاختيارات الفارغة تُتجاهل)</div>
       <button id="add">إضافة</button><div class="msg" id="m"></div></div>`;
   } else if (tab === 'bulk') {
-    body = `<div class="card"><b>إضافة مجموعة أسئلة دفعة واحدة</b>
-      <div class="hint">اكتب كل سؤال في فقرة، أول سطر السؤال، ثم كل اختيار في سطر، وضع * قبل الإجابة الصحيحة. اترك سطراً فارغاً بين الأسئلة:</div>
-      <pre>ما عاصمة مصر؟\n*القاهرة\nالإسكندرية\nأسوان\n\nكم يساوي 3 × 4؟\n10\n*12\n14</pre>
+    body = `<div class="card"><b>إضافة مجموعة أسئلة دفعة واحدة</b>${catSelect()}
+      <div class="hint">كل سؤال في فقرة: أول سطر السؤال، ثم كل اختيار في سطر، وضع * قبل الإجابة الصحيحة. اترك سطراً فارغاً بين الأسئلة:</div>
+      <pre>من فتح مصر عام 641م؟\n*عمرو بن العاص\nصلاح الدين\nمحمد علي\n\nمتى انتهت الحرب العالمية الثانية؟\n1939\n*1945\n1950</pre>
       <textarea id="t" placeholder="الصق الأسئلة هنا"></textarea>
       <button id="bulk">إضافة الكل</button><div class="msg" id="m"></div></div>`;
   } else {
-    body = `<div class="card"><button class="sec" id="exp">نسخ كل الأسئلة (JSON) للنسخ الاحتياطي</button><div class="msg" id="m"></div></div>` +
-      `<div class="card">${data.questions.slice().reverse().map(q=>`<div class="item"><div>${esc(q.q)}</div><small>${q.options.map((o,i)=>(i===q.answer?'✅ ':'• ')+esc(o)).join(' &nbsp; ')}</small><button class="del" data-id="${q.id}">حذف</button></div>`).join('') || '<div class="hint">لا توجد أسئلة</div>'}</div>`;
+    const list = data.questions.filter(q => q.cat === curCat).reverse();
+    body = `<div class="card"><b>عرض أسئلة مجموعة</b>${catSelect()}<button class="sec" id="exp">نسخ كل الأسئلة (JSON) للنسخ الاحتياطي</button><div class="msg" id="m"></div></div>` +
+      `<div class="card">${list.map(q=>`<div class="item"><div>${esc(q.q)}</div><small>${q.options.map((o,i)=>(i===q.answer?'✅ ':'• ')+esc(o)).join(' &nbsp; ')}</small><button class="del dq" data-id="${q.id}">حذف</button></div>`).join('') || '<div class="hint">لا توجد أسئلة في هذه المجموعة</div>'}</div>`;
   }
-  $.innerHTML = `<h1>🛠️ بنك الأسئلة</h1>
-    <div class="card" style="text-align:center">عدد الأسئلة: <b>${n}</b> · اللاعبون: <b>${data.users}</b> · المباريات: <b>${data.matches}</b>${warn}</div>
-    <div class="tabs"><button data-t="add" class="${tab==='add'?'on':''}">سؤال</button><button data-t="bulk" class="${tab==='bulk'?'on':''}">مجموعة</button><button data-t="list" class="${tab==='list'?'on':''}">الأسئلة</button></div>${body}`;
+  $.innerHTML = `<h1>🛠️ لوحة التحكم</h1>
+    <div class="card" style="text-align:center">المجموعات: <b>${data.categories.length}</b> · الأسئلة: <b>${n}</b> · اللاعبون: <b>${data.users}</b></div>
+    <div class="tabs"><button data-t="cats" class="${tab==='cats'?'on':''}">المجموعات</button><button data-t="add" class="${tab==='add'?'on':''}">سؤال</button><button data-t="bulk" class="${tab==='bulk'?'on':''}">دفعة</button><button data-t="list" class="${tab==='list'?'on':''}">الأسئلة</button></div>${body}`;
   $.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; render(); });
+  const sel = document.getElementById('cat'); if (sel) sel.onchange = () => { curCat = sel.value; if (tab === 'list') render(); };
   const msg = (t, ok) => { const m = document.getElementById('m'); if (m) { m.textContent = t; m.className = 'msg ' + (ok ? 'ok' : 'bad'); } };
-  if (tab === 'add') document.getElementById('add').onclick = async () => {
+
+  if (tab === 'cats') {
+    document.getElementById('addcat').onclick = async () => {
+      const r = await call('cat/add', {name: document.getElementById('newcat').value});
+      if (r.ok) { curCat = r.id; await reload(); } else msg(r.error || 'خطأ', false);
+    };
+    $.querySelectorAll('.rb').forEach(b => b.onclick = async () => {
+      const inp = $.querySelector('.rn[data-id="' + b.dataset.id + '"]');
+      const r = await call('cat/rename', {id: b.dataset.id, name: inp.value});
+      if (r.ok) { b.textContent = '✅ تم'; await reload(); } else { b.textContent = r.error || 'خطأ'; }
+    });
+    $.querySelectorAll('.del').forEach(b => b.onclick = async () => {
+      if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'تأكيد حذف المجموعة وكل أسئلتها؟'; return; }
+      await call('cat/delete', {id: b.dataset.id}); await reload();
+    });
+  }
+  if (tab === 'add' && data.categories.length) document.getElementById('add').onclick = async () => {
     const opts = [...document.querySelectorAll('.o')].map(i => i.value.trim());
-    let ans = parseInt(document.querySelector('input[name=c]:checked').value);
-    const options = opts.filter(Boolean);
-    const correctText = opts[ans];
+    const ans = parseInt(document.querySelector('input[name=c]:checked').value);
+    const options = opts.filter(Boolean), correctText = opts[ans];
     if (!correctText) return msg('الإجابة الصحيحة المحددة فارغة', false);
-    const r = await call('add', {q: document.getElementById('q').value, options, answer: options.indexOf(correctText)});
-    if (r.ok) { const d = await call('questions'); data = d; render(); document.getElementById('m').textContent = ''; msg('✅ تمت الإضافة', true); }
-    else msg(r.error || 'خطأ', false);
+    const r = await call('add', {cat: curCat, q: document.getElementById('q').value, options, answer: options.indexOf(correctText)});
+    if (r.ok) { await reload(); msg('✅ تمت الإضافة إلى «' + catName(curCat) + '»', true); } else msg(r.error || 'خطأ', false);
   };
-  if (tab === 'bulk') document.getElementById('bulk').onclick = async () => {
-    const r = await call('bulk', {text: document.getElementById('t').value});
-    const d = await call('questions'); data = d;
+  if (tab === 'bulk' && data.categories.length) document.getElementById('bulk').onclick = async () => {
+    const r = await call('bulk', {cat: curCat, text: document.getElementById('t').value});
     const errs = (r.errors || []).join('\n');
-    render(); msg('تمت إضافة ' + (r.added || 0) + ' سؤال' + (errs ? '\n' + errs : ''), !errs);
+    await reload(); msg('تمت إضافة ' + (r.added || 0) + ' سؤال إلى «' + catName(curCat) + '»' + (errs ? '\n' + errs : '') + (r.error ? '\n' + r.error : ''), !errs && !r.error);
   };
   if (tab === 'list') {
-    $.querySelectorAll('.del').forEach(b => b.onclick = async () => {
+    $.querySelectorAll('.dq').forEach(b => b.onclick = async () => {
       if (b.dataset.sure !== '1') { b.dataset.sure = '1'; b.textContent = 'تأكيد الحذف؟'; return; }
-      await call('delete', {id: b.dataset.id}); data = await call('questions'); render();
+      await call('delete', {id: b.dataset.id}); await reload();
     });
     document.getElementById('exp').onclick = async () => {
-      const txt = JSON.stringify(data.questions.map(({q,options,answer})=>({q,options,answer})), null, 1);
+      const txt = JSON.stringify(data.questions.map(({cat,q,options,answer})=>({cat: catName(cat), q, options, answer})), null, 1);
       try { await navigator.clipboard.writeText(txt); msg('✅ تم النسخ. الصقه في ملف questions.json على GitHub لحفظه دائماً', true); }
       catch (e) { $.insertAdjacentHTML('beforeend', '<div class="card"><textarea readonly>' + esc(txt) + '</textarea></div>'); msg('انسخ النص من الأسفل', true); }
     };
   }
 }
-if (pw) load(); else login();
+if (pw) reload(); else login();
 </script>
 </body></html>

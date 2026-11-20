@@ -12,6 +12,8 @@ const QUESTIONS_PER_MATCH = 15;
 const SECONDS_PER_QUESTION = 20;
 const START_DELAY_MS = 3000; // عدّاد البداية
 const QUEUE_STALE_MS = 8000;
+const MIN_QUESTIONS_TO_PLAY = 5; // أقل عدد أسئلة لتفعيل المجموعة للّاعبين
+const DEFAULT_CAT = 'عام';
 
 // ---------- التخزين ----------
 let db = { users: {}, sessions: {}, matches: {} };
@@ -26,7 +28,7 @@ function save() {
   }, 300);
 }
 
-const queue = new Map(); // username -> lastSeen
+const queue = new Map(); // username -> { seen, cat }
 const userMatch = new Map(); // username -> matchId (المباراة الجارية)
 for (const m of Object.values(db.matches)) {
   if (m.status === 'playing') for (const p of m.players) userMatch.set(p, m.id);
@@ -41,14 +43,32 @@ const validQ = q => q && typeof q.q === 'string' && q.q.trim() && Array.isArray(
   q.options.length >= 2 && q.options.length <= 6 && q.options.every(o => typeof o === 'string' && o.trim()) &&
   Number.isInteger(q.answer) && q.answer >= 0 && q.answer < q.options.length;
 const newId = () => crypto.randomBytes(5).toString('hex');
-// أول تشغيل: نملأ بنك الأسئلة من questions.json
+if (!Array.isArray(db.categories)) db.categories = [];
+function catByName(name, create) {
+  name = String(name || '').trim().slice(0, 30);
+  let c = db.categories.find(c => c.name === name);
+  if (!c && create && name) { c = { id: newId(), name }; db.categories.push(c); }
+  return c;
+}
+// أول تشغيل: نملأ بنك الأسئلة من questions.json (يدعم حقل cat = اسم المجموعة)
 if (!Array.isArray(db.questions)) {
   let arr = [];
   try { arr = JSON.parse(fs.readFileSync(QUESTIONS_FILE, 'utf8')); } catch (e) {}
-  db.questions = arr.filter(validQ).map(q => ({ id: newId(), q: q.q.trim(), options: q.options.map(o => o.trim()), answer: q.answer }));
+  db.questions = arr.filter(validQ).map(q => ({
+    id: newId(), cat: catByName(q.cat || DEFAULT_CAT, true).id,
+    q: q.q.trim(), options: q.options.map(o => o.trim()), answer: q.answer }));
   save();
 }
-function loadQuestions() { return db.questions.filter(validQ); }
+// ترقية الأسئلة القديمة التي لا تنتمي لمجموعة
+if (db.questions.some(q => !q.cat || !db.categories.find(c => c.id === q.cat))) {
+  const def = catByName(DEFAULT_CAT, true);
+  db.questions.forEach(q => { if (!q.cat || !db.categories.find(c => c.id === q.cat)) q.cat = def.id; });
+  save();
+}
+function loadQuestions(cat) { return db.questions.filter(q => q.cat === cat && validQ(q)); }
+function catCounts() {
+  return db.categories.map(c => ({ id: c.id, name: c.name, count: db.questions.filter(q => q.cat === c.id && validQ(q)).length }));
+}
 
 // نص جماعي: كل سؤال في فقرة، أول سطر السؤال، ثم الاختيارات، والصحيح يبدأ بـ *
 function parseBulk(text) {
@@ -78,8 +98,8 @@ function shuffle(a) {
 }
 
 // ---------- منطق المباراة ----------
-function createMatch(a, b) {
-  const pool = loadQuestions();
+function createMatch(a, b, cat) {
+  const pool = loadQuestions(cat);
   const qs = shuffle(pool).slice(0, QUESTIONS_PER_MATCH).map(q => {
     // نخلط ترتيب الاختيارات أيضاً
     const idx = shuffle(q.options.map((_, i) => i));
@@ -89,7 +109,7 @@ function createMatch(a, b) {
   const t = now() + START_DELAY_MS;
   const id = crypto.randomBytes(8).toString('hex');
   const m = {
-    id, players: [a, b], qs, status: 'playing', createdAt: now(),
+    id, cat, players: [a, b], qs, status: 'playing', createdAt: now(),
     p: {
       [a]: { answers: [], times: [], qStart: t },
       [b]: { answers: [], times: [], qStart: t },
@@ -139,15 +159,15 @@ function finish(m) {
   save();
 }
 
-function tryMatchmake(me) {
-  for (const [u, seen] of queue) if (now() - seen > QUEUE_STALE_MS) queue.delete(u);
-  for (const u of queue.keys()) {
-    if (u !== me) {
+function tryMatchmake(me, cat) {
+  for (const [u, e] of queue) if (now() - e.seen > QUEUE_STALE_MS) queue.delete(u);
+  for (const [u, e] of queue) {
+    if (u !== me && e.cat === cat) {
       queue.delete(u); queue.delete(me);
-      return createMatch(u, me);
+      return createMatch(u, me, cat);
     }
   }
-  queue.set(me, now());
+  queue.set(me, { seen: now(), cat });
   return null;
 }
 
@@ -158,6 +178,7 @@ function viewFor(m, me) {
   const mine = m.p[me], theirs = m.p[opp];
   const v = {
     id: m.id, status: m.status, opponent: opp, total: m.qs.length,
+    cat: m.cat, catName: (db.categories.find(c => c.id === m.cat) || {}).name || '',
     secondsPerQuestion: SECONDS_PER_QUESTION,
     myAnswered: mine.answers.length, oppAnswered: theirs.answers.length,
   };
@@ -211,6 +232,7 @@ function tooMany(ip) {
   return a.length > 20;
 }
 
+const catByName2 = id => db.categories.find(c => c.id === id);
 function isAdmin(req) {
   const pw = process.env.ADMIN_PASSWORD;
   const given = String(req.headers['x-admin-password'] || '');
@@ -224,18 +246,39 @@ async function adminApi(req, res, url, ip) {
   if (tooMany(ip)) return send(res, 429, { error: 'محاولات كثيرة، انتظر قليلاً' });
   if (!isAdmin(req)) return send(res, 401, { error: 'كلمة مرور الأدمن غير صحيحة' });
   if (url === '/api/admin/questions' && req.method === 'GET')
-    return send(res, 200, { questions: db.questions, users: Object.keys(db.users).length, matches: Object.keys(db.matches).length, perMatch: QUESTIONS_PER_MATCH });
+    return send(res, 200, { questions: db.questions, categories: catCounts(), users: Object.keys(db.users).length, matches: Object.keys(db.matches).length, perMatch: QUESTIONS_PER_MATCH, min: MIN_QUESTIONS_TO_PLAY });
+  if (url === '/api/admin/cat/add' && req.method === 'POST') {
+    const b = await readBody(req); const name = String(b.name || '').trim().slice(0, 30);
+    if (!name) return send(res, 400, { error: 'اكتب اسم المجموعة' });
+    if (catByName(name)) return send(res, 409, { error: 'المجموعة موجودة بالفعل' });
+    const c = catByName(name, true); save();
+    return send(res, 200, { ok: true, id: c.id });
+  }
+  if (url === '/api/admin/cat/rename' && req.method === 'POST') {
+    const b = await readBody(req); const c = catByName2(b.id); const name = String(b.name || '').trim().slice(0, 30);
+    if (!c || !name) return send(res, 400, { error: 'بيانات غير صالحة' });
+    if (db.categories.some(x => x.name === name && x.id !== c.id)) return send(res, 409, { error: 'الاسم مستخدم' });
+    c.name = name; save(); return send(res, 200, { ok: true });
+  }
+  if (url === '/api/admin/cat/delete' && req.method === 'POST') {
+    const b = await readBody(req);
+    db.categories = db.categories.filter(c => c.id !== b.id);
+    db.questions = db.questions.filter(q => q.cat !== b.id); save();
+    return send(res, 200, { ok: true });
+  }
   if (url === '/api/admin/add' && req.method === 'POST') {
     const b = await readBody(req);
+    if (!catByName2(b.cat)) return send(res, 400, { error: 'اختر المجموعة أولاً' });
     const q = { q: String(b.q || '').trim(), options: Array.isArray(b.options) ? b.options.map(o => String(o).trim()).filter(Boolean) : [], answer: b.answer };
     if (!validQ(q)) return send(res, 400, { error: 'السؤال غير مكتمل: اكتب السؤال و2-6 اختيارات وحدد الصحيح' });
-    db.questions.push(Object.assign({ id: newId() }, q)); save();
+    db.questions.push(Object.assign({ id: newId(), cat: b.cat }, q)); save();
     return send(res, 200, { ok: true });
   }
   if (url === '/api/admin/bulk' && req.method === 'POST') {
     const b = await readBody(req, 500000);
+    if (!catByName2(b.cat)) return send(res, 400, { error: 'اختر المجموعة أولاً', added: 0, errors: [] });
     const { out, errors } = parseBulk(b.text);
-    out.forEach(q => db.questions.push(Object.assign({ id: newId() }, q))); if (out.length) save();
+    out.forEach(q => db.questions.push(Object.assign({ id: newId(), cat: b.cat }, q))); if (out.length) save();
     return send(res, 200, { added: out.length, errors });
   }
   if (url === '/api/admin/delete' && req.method === 'POST') {
@@ -288,11 +331,11 @@ async function api(req, res, url) {
     const mid = userMatch.get(me);
     if (mid) return send(res, 200, { profile, status: 'match', match: viewFor(db.matches[mid], me) });
     if (queue.has(me)) {
-      queue.set(me, now());
+      const cat = queue.get(me).cat;
       // قد يكون لاعب آخر دخل الطابور للتو
-      const m = tryMatchmake(me);
+      const m = tryMatchmake(me, cat);
       if (m) return send(res, 200, { profile, status: 'match', match: viewFor(m, me) });
-      return send(res, 200, { profile, status: 'waiting' });
+      return send(res, 200, { profile, status: 'waiting', catName: (catByName2(cat) || {}).name || '' });
     }
     // آخر مباراة منتهية (لعرض النتيجة)
     const last = db.users[me].lastMatch && db.matches[db.users[me].lastMatch];
@@ -301,10 +344,16 @@ async function api(req, res, url) {
 
   if (url === '/api/queue/join' && req.method === 'POST') {
     if (userMatch.has(me)) return send(res, 200, { ok: true });
-    if (!loadQuestions().length) return send(res, 503, { error: 'لا توجد أسئلة في البنك بعد' });
-    tryMatchmake(me);
+    const b = await readBody(req);
+    const c = catByName2(b.cat);
+    if (!c) return send(res, 400, { error: 'اختر مجموعة' });
+    if (loadQuestions(c.id).length < MIN_QUESTIONS_TO_PLAY) return send(res, 503, { error: 'هذه المجموعة لا تحتوي أسئلة كافية بعد' });
+    queue.delete(me);
+    tryMatchmake(me, c.id);
     return send(res, 200, { ok: true });
   }
+  if (url === '/api/categories' && req.method === 'GET')
+    return send(res, 200, { categories: catCounts().map(c => Object.assign(c, { playable: c.count >= MIN_QUESTIONS_TO_PLAY })), perMatch: QUESTIONS_PER_MATCH });
   if (url === '/api/queue/leave' && req.method === 'POST') {
     queue.delete(me); return send(res, 200, { ok: true });
   }
