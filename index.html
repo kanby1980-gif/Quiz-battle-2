@@ -8,14 +8,14 @@
 :root{--bg:#0f172a;--card:#1e293b;--line:#334155;--txt:#f1f5f9;--mut:#94a3b8;--pri:#6366f1;--ok:#22c55e;--bad:#ef4444;--warn:#f59e0b}
 *{box-sizing:border-box}
 body{margin:0;background:var(--bg);color:var(--txt);font-family:system-ui,-apple-system,"Segoe UI",Tahoma,sans-serif;min-height:100vh}
-#app{max-width:520px;margin:0 auto;padding:16px}
+#app{max-width:520px;margin:0 auto;padding:16px 16px 90px}
 h1{font-size:22px;margin:8px 0 16px;text-align:center}
-.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin-bottom:14px}
-input{width:100%;padding:13px;margin:6px 0;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--txt);font-size:16px}
-button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--pri);color:#fff;font-size:17px;font-weight:600;margin-top:8px;cursor:pointer}
+.card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:16px;margin-bottom:14px}
+input,select{width:100%;padding:13px;margin:6px 0;border-radius:10px;border:1px solid var(--line);background:#0b1220;color:var(--txt);font-size:16px;font-family:inherit}
+button{width:100%;padding:14px;border:0;border-radius:12px;background:var(--pri);color:#fff;font-size:17px;font-weight:600;margin-top:8px;cursor:pointer;font-family:inherit}
 button.sec{background:transparent;border:1px solid var(--line);color:var(--mut)}
-button:disabled{opacity:.5}
-.tabs{display:flex;gap:8px;margin-bottom:10px}.tabs button{margin:0;background:transparent;border:1px solid var(--line);color:var(--mut);padding:10px}
+button:disabled{opacity:.45}
+.tabs{display:flex;gap:6px;margin-bottom:12px}.tabs button{margin:0;background:transparent;border:1px solid var(--line);color:var(--mut);padding:10px 4px;font-size:14px}
 .tabs button.on{background:var(--pri);color:#fff;border-color:var(--pri)}
 .err{color:var(--bad);min-height:20px;font-size:14px;margin-top:6px}
 .stats{display:flex;justify-content:space-around;text-align:center}.stats b{display:block;font-size:24px}.stats span{color:var(--mut);font-size:13px}
@@ -26,9 +26,6 @@ button:disabled{opacity:.5}
 .opt{background:#0b1220;border:2px solid var(--line);color:var(--txt);text-align:right;font-weight:500;margin-top:10px}
 .opt.sel{border-color:var(--pri);background:#1e1b4b}
 .center{text-align:center}
-button.cat{display:flex;justify-content:space-between;align-items:center;background:#0b1220;border:2px solid var(--line);font-weight:600}
-button.cat small{color:var(--mut);font-weight:400;font-size:13px}
-button.cat:not(:disabled):active{border-color:var(--pri)}
 .big{font-size:56px;font-weight:800;margin:10px 0}
 .win{color:var(--ok)}.lose{color:var(--bad)}.draw{color:var(--warn)}
 .spin{width:44px;height:44px;border:4px solid var(--line);border-top-color:var(--pri);border-radius:50%;margin:16px auto;animation:s 1s linear infinite}
@@ -37,12 +34,28 @@ button.cat:not(:disabled):active{border-color:var(--pri)}
 .rev .a{font-size:13px;margin-top:4px}
 .good{color:var(--ok)}.badc{color:var(--bad)}
 table{width:100%;border-collapse:collapse;font-size:15px}td,th{padding:8px 4px;text-align:right;border-bottom:1px solid var(--line)}
+button.cat{display:flex;justify-content:space-between;align-items:center;background:#0b1220;border:2px solid var(--line);font-weight:600}
+button.cat small{color:var(--mut);font-weight:400;font-size:13px}
+.prow{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--line)}
+.prow:first-child{border-top:0}.prow .nm{font-weight:600}.prow small{color:var(--mut)}
+.prow button{width:auto;margin:0;padding:8px 16px;font-size:14px;flex:none}
+.st{font-size:13px;margin-top:3px}.st.searching{color:var(--ok)}.st.online{color:var(--mut)}.st.playing{color:var(--warn)}.st.offline{color:#64748b}
+.myid{font-size:34px;font-weight:800;letter-spacing:4px;direction:ltr;text-align:center;color:#a5b4fc;margin:6px 0}
+.hint{color:var(--mut);font-size:13px;line-height:1.7}
+.row{display:flex;gap:8px}.row input{margin:6px 0}.row button{width:auto;flex:none;margin:6px 0;padding:0 18px}
+#overlay{position:fixed;left:0;right:0;bottom:0;z-index:50;pointer-events:none}
+#overlay>*{pointer-events:auto}
+.toast{position:fixed;top:14px;left:50%;transform:translateX(-50%);background:#0b1220;border:1px solid var(--pri);padding:12px 18px;border-radius:12px;z-index:60;max-width:90%;text-align:center;font-size:15px}
+.invite{max-width:520px;margin:0 auto;background:#1e1b4b;border:2px solid var(--pri);border-radius:16px 16px 0 0;padding:14px 16px}
+.invite .row button{flex:1;margin:8px 0 0;padding:12px}
 </style>
 </head>
 <body>
 <div id="app"></div>
+<div id="overlay"></div>
 <script>
-const $app = document.getElementById('app');
+const $app = document.getElementById('app'), $ov = document.getElementById('overlay');
+const q1 = s => $app.querySelector(s);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 async function api(path, body) {
   const r = await fetch('/api/' + path, body === undefined ? {} : {
@@ -51,82 +64,185 @@ async function api(path, body) {
   let j = {}; try { j = await r.json(); } catch (e) {}
   j._status = r.status; return j;
 }
+function toast(msg) {
+  const t = document.createElement('div'); t.className = 'toast'; t.textContent = msg;
+  document.body.appendChild(t); setTimeout(() => t.remove(), 4500);
+}
+const STATUS = {searching: '🟢 يبحث عن تحدّي', online: '⚪ متصل (لا يبحث الآن)', playing: '🎮 في مباراة', offline: '⚫ غير متصل'};
 
-let state = null, poll = null, tick = null, sel = null, mode = 'login', showBoard = false, curKey = '';
+let state = null, poll = null, tick = null, mode = 'login', curKey = '', homeTab = 'play', selCat = '';
+let lastPlayers = 0, busy = false, invKey = '';
 
 // ---------- شاشة الدخول ----------
 function renderAuth(err) {
-  stopTimers();
+  stopTimers(); $ov.innerHTML = ''; invKey = '';
   $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1><div class="card">
     <div class="tabs"><button id="tl" class="${mode==='login'?'on':''}">دخول</button><button id="tr" class="${mode==='register'?'on':''}">حساب جديد</button></div>
     <input id="u" placeholder="اسم المستخدم" autocomplete="username" maxlength="20">
     <input id="p" type="password" placeholder="كلمة المرور" autocomplete="${mode==='login'?'current-password':'new-password'}">
     <button id="go">${mode==='login'?'دخول':'إنشاء الحساب'}</button>
-    <div class="err" id="e">${esc(err||'')}</div></div>`;
-  tl.onclick = () => { mode='login'; renderAuth(); };
-  tr.onclick = () => { mode='register'; renderAuth(); };
+    <div class="err" id="e">${esc(err||'')}</div>
+    ${mode==='register'?'<div class="hint">ستحصل على رقم ID خاص بك، ويمكنك تغيير اسمك الظاهر من الملف الشخصي.</div>':''}</div>`;
+  q1('#tl').onclick = () => { mode='login'; renderAuth(); };
+  q1('#tr').onclick = () => { mode='register'; renderAuth(); };
   const submit = async () => {
-    go.disabled = true;
-    const r = await api(mode, {username: u.value.trim(), password: p.value});
-    if (r.ok) start(); else { go.disabled = false; e.textContent = r.error || 'حدث خطأ'; }
+    q1('#go').disabled = true;
+    const r = await api(mode, {username: q1('#u').value.trim(), password: q1('#p').value});
+    if (r.ok) start(); else { q1('#go').disabled = false; q1('#e').textContent = r.error || 'حدث خطأ'; }
   };
-  go.onclick = submit; p.onkeydown = ev => { if (ev.key === 'Enter') submit(); };
+  q1('#go').onclick = submit; q1('#p').onkeydown = ev => { if (ev.key === 'Enter') submit(); };
 }
 
 // ---------- الدورة الرئيسية ----------
 function stopTimers(){ clearInterval(poll); clearInterval(tick); poll = tick = null; }
-async function start() { stopTimers(); await refresh(); poll = setInterval(refresh, 1500); }
+async function start() { stopTimers(); curKey = ''; await refresh(); poll = setInterval(refresh, 1500); }
 async function refresh() {
   const s = await api('state');
   if (s._status === 401) { state = null; return renderAuth(); }
+  if (!s.status) return; // خطأ شبكة مؤقت
   state = s; render();
 }
 function render() {
   if (!state) return;
+  (state.notices || []).forEach(toast);
+  renderInvite();
   if (state.status === 'match') return renderMatch(state.match);
   if (state.status === 'waiting') return renderWaiting();
+  if (state.status === 'invited') return renderInvited();
   renderHome();
 }
 
+// ---------- دعوة واردة (تظهر في أي شاشة خارج المباراة) ----------
+function renderInvite() {
+  const iv = state.invite;
+  const key = iv ? iv.fromId + '|' + iv.catName : '';
+  if (key === invKey) return; invKey = key;
+  if (!iv) { $ov.innerHTML = ''; return; }
+  $ov.innerHTML = `<div class="invite"><b>⚔️ ${esc(iv.fromName)}</b> <small style="color:var(--mut)">#${esc(iv.fromId)}</small> يدعوك لتحدّي في «${esc(iv.catName)}»
+    <div class="row"><button id="acc">قبول</button><button id="dec" class="sec">رفض</button></div></div>`;
+  const respond = async (accept) => {
+    const r = await api('invite/respond', {accept}); if (r.error) toast(r.error);
+    invKey = ''; $ov.innerHTML = ''; curKey = ''; refresh();
+  };
+  $ov.querySelector('#acc').onclick = () => respond(true);
+  $ov.querySelector('#dec').onclick = () => respond(false);
+}
+
+// ---------- الرئيسية ----------
 function statsHtml(p) {
   return `<div class="stats"><div><b class="good">${p.wins}</b><span>فوز</span></div><div><b class="badc">${p.losses}</b><span>خسارة</span></div><div><b>${p.draws}</b><span>تعادل</span></div></div>`;
 }
 
 async function renderHome() {
-  clearInterval(tick); tick = null; curKey = '';
-  const p = state.profile, last = state.last;
-  if (last && !showBoard) { return renderResult(last); }
-  const cr = await api('categories'); const cats = cr.categories || [];
-  const key = 'home' + showBoard + JSON.stringify(p) + JSON.stringify(cats);
-  if (key === curKey) return; curKey = key;
-  let board = '';
-  if (showBoard) {
-    const lb = await api('leaderboard');
-    board = `<div class="card"><b>🏅 المتصدرون</b><table><tr><th>#</th><th>اللاعب</th><th>فوز</th><th>خسارة</th></tr>${
-      (lb.rows||[]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.name)}</td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</table></div>`;
-  }
-  $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1>
-    <div class="card center"><div style="color:var(--mut);margin-bottom:8px">أهلاً ${esc(p.username)}</div>${statsHtml(p)}</div>
-    <div class="card"><b>⚔️ اختر المجموعة وابدأ التحدّي</b><div id="cats">${
-      cats.length ? cats.map(c => `<button class="cat" data-id="${esc(c.id)}" ${c.playable?'':'disabled'}>${esc(c.name)} <small>${c.playable ? c.count + ' سؤال' : 'قريباً'}</small></button>`).join('')
-                  : '<div style="color:var(--mut);margin-top:8px">لا توجد مجموعات بعد</div>'}</div></div>
-    <button class="sec" id="lb">${showBoard?'إخفاء المتصدرين':'المتصدرون'}</button>
-    <button class="sec" id="out">تسجيل الخروج</button><div class="err" id="e"></div>${board}`;
-  document.querySelectorAll('.cat').forEach(b => b.onclick = async () => {
-    const r = await api('queue/join', {cat: b.dataset.id}); if (r.error) e.textContent = r.error; else { curKey = ''; refresh(); }
-  });
-  lb.onclick = () => { showBoard = !showBoard; curKey=''; renderHome(); };
-  out.onclick = async () => { await api('logout', {}); state = null; stopTimers(); renderAuth(); };
+  if (busy) return; busy = true;
+  try {
+    clearInterval(tick); tick = null;
+    const p = state.profile, last = state.last;
+    if (last) { busy = false; return renderResult(last); }
+    const cats = (await api('categories')).categories || [];
+    if (!cats.find(c => c.id === selCat)) selCat = (cats.find(c => c.playable) || cats[0] || {}).id || '';
+    const key = 'home' + homeTab + JSON.stringify(p) + JSON.stringify(cats);
+    if (key !== curKey) { curKey = key; buildHome(p, cats); }
+    if (homeTab === 'players' && Date.now() - lastPlayers > 2500) refreshPlayers();
+  } finally { busy = false; }
 }
 
+function catOptions(cats) {
+  return cats.map(c => `<option value="${esc(c.id)}" ${c.id===selCat?'selected':''} ${c.playable?'':'disabled'}>${esc(c.name)} (${c.count})</option>`).join('');
+}
+
+function buildHome(p, cats) {
+  const tabs = [['play','🎮 تحدّي'],['players','👥 اللاعبون'],['board','🏅 المتصدرون'],['me','👤 حسابي']];
+  let body = '';
+  if (homeTab === 'play') {
+    body = `<div class="card"><b>⚔️ اختر المجموعة وابدأ التحدّي</b><div>${
+      cats.length ? cats.map(c => `<button class="cat" data-id="${esc(c.id)}" ${c.playable?'':'disabled'}>${esc(c.name)} <small>${c.playable ? c.count + ' سؤال' : 'قريباً'}</small></button>`).join('')
+                  : '<div class="hint" style="margin-top:8px">لا توجد مجموعات بعد</div>'}</div></div>`;
+  } else if (homeTab === 'players') {
+    body = `<div class="card"><b>إرسال دعوة تحدّي</b>
+      <select id="pcat">${catOptions(cats)}</select>
+      <div class="row"><input id="tid" inputmode="numeric" maxlength="6" placeholder="ID اللاعب (6 أرقام)"><button id="sendid">دعوة</button></div>
+      <div class="hint">أو اضغط «تحدّي» بجانب أي لاعب متصل في القائمة.</div></div>
+      <div class="card"><b>اللاعبون المسجّلون</b><div id="plist" class="hint" style="margin-top:8px">جارٍ التحميل...</div></div>`;
+  } else if (homeTab === 'board') {
+    body = `<div class="card"><b>🏅 المتصدرون</b><div id="lb" class="hint" style="margin-top:8px">جارٍ التحميل...</div></div>`;
+  } else {
+    body = `<div class="card center"><div class="hint">رقم الـID الخاص بك (شاركه مع أصدقائك ليدعوك)</div><div class="myid">${esc(p.id)}</div><button class="sec" id="copyid">نسخ الـID</button></div>
+      <div class="card"><b>تغيير الاسم</b><input id="newname" maxlength="20" value="${esc(p.name)}"><button id="savename">حفظ الاسم</button></div>
+      <div class="card"><b>تغيير كلمة المرور</b>
+        <input id="oldpw" type="password" placeholder="كلمة المرور الحالية" autocomplete="current-password">
+        <input id="newpw" type="password" placeholder="كلمة المرور الجديدة (6 أحرف على الأقل)" autocomplete="new-password">
+        <button id="savepw">حفظ كلمة المرور</button></div>
+      <button class="sec" id="out">تسجيل الخروج</button>`;
+  }
+  $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1>
+    <div class="card center"><div style="margin-bottom:8px">أهلاً <b>${esc(p.name)}</b> <small style="color:var(--mut)">#${esc(p.id)}</small></div>${statsHtml(p)}</div>
+    <div class="tabs">${tabs.map(t => `<button data-t="${t[0]}" class="${homeTab===t[0]?'on':''}">${t[1]}</button>`).join('')}</div>${body}`;
+  $app.querySelectorAll('.tabs button').forEach(b => b.onclick = () => { homeTab = b.dataset.t; curKey = ''; lastPlayers = 0; renderHome(); });
+
+  if (homeTab === 'play') $app.querySelectorAll('.cat').forEach(b => b.onclick = async () => {
+    const r = await api('queue/join', {cat: b.dataset.id}); if (r.error) toast(r.error); else { curKey = ''; refresh(); }
+  });
+  if (homeTab === 'players') {
+    q1('#pcat').onchange = e => { selCat = e.target.value; };
+    q1('#sendid').onclick = () => sendInvite(q1('#tid').value.trim());
+    refreshPlayers();
+  }
+  if (homeTab === 'board') api('leaderboard').then(lb => {
+    const el = q1('#lb'); if (!el) return;
+    el.innerHTML = `<table><tr><th>#</th><th>اللاعب</th><th>فوز</th><th>خسارة</th></tr>${(lb.rows||[]).map((r,i)=>`<tr><td>${i+1}</td><td>${esc(r.name)} <small style="color:var(--mut)">#${esc(r.id)}</small></td><td>${r.wins}</td><td>${r.losses}</td></tr>`).join('')}</table>`;
+  });
+  if (homeTab === 'me') {
+    q1('#copyid').onclick = async () => { try { await navigator.clipboard.writeText(p.id); toast('تم نسخ الـID'); } catch (e) { toast('الـID: ' + p.id); } };
+    q1('#savename').onclick = async () => {
+      const r = await api('profile/name', {name: q1('#newname').value});
+      if (r.ok) { toast('✅ تم تغيير الاسم'); curKey = ''; refresh(); } else toast(r.error || 'خطأ');
+    };
+    q1('#savepw').onclick = async () => {
+      const r = await api('profile/password', {oldPassword: q1('#oldpw').value, newPassword: q1('#newpw').value});
+      if (r.ok) { toast('✅ تم تغيير كلمة المرور'); q1('#oldpw').value = q1('#newpw').value = ''; } else toast(r.error || 'خطأ');
+    };
+    q1('#out').onclick = async () => { await api('logout', {}); state = null; stopTimers(); renderAuth(); };
+  }
+}
+
+async function refreshPlayers() {
+  lastPlayers = Date.now();
+  const r = await api('players'); const el = q1('#plist'); if (!el || !r.rows) return;
+  el.className = '';
+  el.innerHTML = r.rows.map(x => {
+    const can = !x.me && (x.status === 'searching' || x.status === 'online');
+    return `<div class="prow"><div><span class="nm">${esc(x.name)}${x.me ? ' (أنت)' : ''}</span> <small>#${esc(x.id)} · ${x.wins} فوز</small><div class="st ${x.status}">${STATUS[x.status]}</div></div>
+      ${x.me ? '' : `<button class="inv" data-id="${esc(x.id)}" ${can?'':'disabled'}>تحدّي</button>`}</div>`;
+  }).join('') || 'لا يوجد لاعبون';
+  el.querySelectorAll('.inv').forEach(b => b.onclick = () => sendInvite(b.dataset.id));
+}
+
+async function sendInvite(id) {
+  if (!/^\d{6}$/.test(id)) return toast('اكتب ID صحيح من 6 أرقام');
+  if (!selCat) return toast('اختر مجموعة أولاً');
+  const r = await api('invite', {toId: id, cat: selCat});
+  if (r.error) return toast(r.error);
+  curKey = ''; refresh();
+}
+
+// ---------- الانتظار ----------
 function renderWaiting() {
   clearInterval(tick); tick = null;
   if (curKey === 'wait') return; curKey = 'wait';
   $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1><div class="card center"><div class="spin"></div><div>جارٍ البحث عن منافس في «${esc(state.catName || '')}»...</div><div style="color:var(--mut);font-size:14px;margin-top:6px">سيبدأ التحدّي تلقائياً عند دخول لاعب آخر</div></div>
     <button class="sec" id="cancel">إلغاء</button>`;
-  cancel.onclick = async () => { await api('queue/leave', {}); curKey=''; refresh(); };
+  q1('#cancel').onclick = async () => { await api('queue/leave', {}); curKey = ''; refresh(); };
+}
+function renderInvited() {
+  clearInterval(tick); tick = null;
+  const k = 'invd' + state.toName; if (curKey === k) return; curKey = k;
+  $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1><div class="card center"><div class="spin"></div><div>بانتظار رد <b>${esc(state.toName)}</b> على دعوتك في «${esc(state.catName)}»...</div><div style="color:var(--mut);font-size:14px;margin-top:6px">تنتهي الدعوة خلال دقيقة</div></div>
+    <button class="sec" id="cancel">إلغاء الدعوة</button>`;
+  q1('#cancel').onclick = async () => { await api('invite/cancel', {}); curKey = ''; refresh(); };
 }
 
+// ---------- المباراة ----------
 function renderMatch(m) {
   if (m.status === 'finished') return renderResult(m);
   if (m.waitingForOpponent) {
@@ -137,17 +253,24 @@ function renderMatch(m) {
   }
   const c = m.current; if (!c) return;
   const key = 'q' + m.id + c.index;
-  const header = () => `<div class="top"><span>⚔️ ضد ${esc(m.opponent)} · ${esc(m.catName || '')}</span><span>السؤال ${c.index+1} / ${m.total}</span></div>
-    <div class="bar"><i style="width:${(c.index/m.total)*100}%"></i></div>
-    <div class="top"><span>أجبتَ: ${m.myAnswered}</span><span>المنافس أجاب: ${m.oppAnswered}</span></div>`;
   if (curKey === key) return; // لا نعيد الرسم أثناء الإجابة
-  curKey = key; sel = null;
+  curKey = key;
   const endAt = Date.now() + m.remainingMs, startAt = Date.now() + m.startsInMs;
   const total = m.secondsPerQuestion * 1000;
-  $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1>${header()}<div class="card" id="box"></div>`;
+  $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1>
+    <div class="top"><span>⚔️ ضد ${esc(m.opponent)} · ${esc(m.catName || '')}</span><span>السؤال ${c.index+1} / ${m.total}</span></div>
+    <div class="bar"><i style="width:${(c.index/m.total)*100}%"></i></div>
+    <div class="top"><span>أجبتَ: ${m.myAnswered}</span><span>المنافس أجاب: ${m.oppAnswered}</span></div><div class="card" id="box"></div>`;
   clearInterval(tick);
+  let sent = false;
+  async function answer(i) {
+    if (sent) return; sent = true;
+    $app.querySelectorAll('.opt').forEach((b,k) => { b.disabled = true; if (k === i) b.classList.add('sel'); });
+    await api('answer', {qIndex: c.index, choice: i});
+    curKey = ''; refresh();
+  }
   const draw = () => {
-    const box = document.getElementById('box'); if (!box) return;
+    const box = q1('#box'); if (!box) return;
     const left = startAt - Date.now();
     if (left > 0) { box.innerHTML = `<div class="center"><div style="color:var(--mut)">تبدأ المباراة خلال</div><div class="big">${Math.ceil(left/1000)}</div></div>`; return; }
     if (!box.dataset.q) {
@@ -157,16 +280,9 @@ function renderMatch(m) {
       box.querySelectorAll('.opt').forEach(b => b.onclick = () => answer(parseInt(b.dataset.i)));
     }
     const rem = Math.max(0, endAt - Date.now());
-    const tb = document.getElementById('tb'); if (tb) tb.style.width = (rem/total*100) + '%';
+    const tb = q1('#tb'); if (tb) tb.style.width = (rem/total*100) + '%';
     if (rem <= 0) answer(null);
   };
-  let sent = false;
-  async function answer(i) {
-    if (sent) return; sent = true;
-    document.querySelectorAll('.opt').forEach((b,k) => { b.disabled = true; if (k === i) b.classList.add('sel'); });
-    await api('answer', {qIndex: c.index, choice: i});
-    curKey = ''; refresh();
-  }
   draw(); tick = setInterval(draw, 200);
 }
 
@@ -177,13 +293,13 @@ function renderResult(m) {
   $app.innerHTML = `<h1>🏆 تحدّي المعلومات</h1><div class="card center">
     <div class="big ${t[1]}">${t[0]}</div>
     <div style="font-size:18px">أنت ${m.myScore} — ${esc(m.opponent)} ${m.oppScore}</div></div>
-    <button id="again">⚔️ العب «${esc(m.catName || '')}» مرة أخرى</button><button class="sec" id="home">اختيار مجموعة أخرى</button>
+    <button id="again">⚔️ العب «${esc(m.catName || '')}» مرة أخرى</button><button class="sec" id="home">الرئيسية</button>
     <div class="card" style="margin-top:14px"><b>مراجعة الإجابات</b>${m.review.map((r,i)=>{
       const ok = r.mine === r.correct;
       return `<div class="rev"><div>${i+1}. ${esc(r.q)}</div><div class="a ${ok?'good':'badc'}">${ok?'✓':'✗'} إجابتك: ${r.mine==null?'لم تُجب':esc(r.options[r.mine])}</div>${ok?'':`<div class="a good">الصحيح: ${esc(r.options[r.correct])}</div>`}</div>`;}).join('')}</div>`;
-  const dismiss = async () => { await api('dismiss', {}); curKey=''; };
-  again.onclick = async () => { await dismiss(); await api('queue/join', {cat: m.cat}); refresh(); };
-  home.onclick = async () => { await dismiss(); refresh(); };
+  const dismiss = async () => { await api('dismiss', {}); curKey = ''; };
+  q1('#again').onclick = async () => { await dismiss(); const r = await api('queue/join', {cat: m.cat}); if (r.error) toast(r.error); refresh(); };
+  q1('#home').onclick = async () => { await dismiss(); homeTab = 'play'; refresh(); };
 }
 
 start();

@@ -29,6 +29,10 @@ function save() {
 }
 
 const queue = new Map(); // username -> { seen, cat }
+const lastSeen = new Map(); // username -> آخر ظهور
+const invites = new Map(); // fromUser -> { from, to, cat, at }
+const notices = new Map(); // user -> [رسائل لمرة واحدة]
+const ONLINE_MS = 12000, INVITE_MS = 60000;
 const userMatch = new Map(); // username -> matchId (المباراة الجارية)
 for (const m of Object.values(db.matches)) {
   if (m.status === 'playing') for (const p of m.players) userMatch.set(p, m.id);
@@ -65,6 +69,34 @@ if (db.questions.some(q => !q.cat || !db.categories.find(c => c.id === q.cat))) 
   db.questions.forEach(q => { if (!q.cat || !db.categories.find(c => c.id === q.cat)) q.cat = def.id; });
   save();
 }
+// ---- هوية اللاعب: ID واسم ظاهر ----
+function userById(id) { for (const [u, x] of Object.entries(db.users)) if (x.id === id) return u; return null; }
+function newUserId() {
+  let id; do { id = String(crypto.randomInt(100000, 1000000)); } while (userById(id));
+  return id;
+}
+for (const [u, x] of Object.entries(db.users)) { // ترقية الحسابات القديمة
+  if (!x.id) { x.id = newUserId(); save(); }
+  if (!x.displayName) { x.displayName = u; save(); }
+}
+const dn = u => (db.users[u] && db.users[u].displayName) || u;
+const NAME_RE = /^[A-Za-z0-9_\u0600-\u06FF][A-Za-z0-9_\u0600-\u06FF ]{0,18}[A-Za-z0-9_\u0600-\u06FF]$/;
+function notify(u, msg) { if (!notices.has(u)) notices.set(u, []); notices.get(u).push(msg); }
+function statusOf(u) {
+  if (userMatch.has(u)) return 'playing';
+  const q = queue.get(u);
+  if (q && now() - q.seen <= QUEUE_STALE_MS) return 'searching';
+  if (now() - (lastSeen.get(u) || 0) <= ONLINE_MS) return 'online';
+  return 'offline';
+}
+function cleanInvites() {
+  for (const [f, iv] of invites) {
+    if (userMatch.has(f) || userMatch.has(iv.to) || !db.users[f] || !db.users[iv.to]) invites.delete(f);
+    else if (now() - iv.at > INVITE_MS) { invites.delete(f); notify(f, 'انتهت مهلة دعوتك إلى ' + dn(iv.to)); }
+  }
+}
+function incomingFor(u) { for (const iv of invites.values()) if (iv.to === u) return iv; return null; }
+
 function loadQuestions(cat) { return db.questions.filter(q => q.cat === cat && validQ(q)); }
 function catCounts() {
   return db.categories.map(c => ({ id: c.id, name: c.name, count: db.questions.filter(q => q.cat === c.id && validQ(q)).length }));
@@ -177,7 +209,7 @@ function viewFor(m, me) {
   const opp = m.players.find(p => p !== me);
   const mine = m.p[me], theirs = m.p[opp];
   const v = {
-    id: m.id, status: m.status, opponent: opp, total: m.qs.length,
+    id: m.id, status: m.status, opponent: dn(opp), total: m.qs.length,
     cat: m.cat, catName: (db.categories.find(c => c.id === m.cat) || {}).name || '',
     secondsPerQuestion: SECONDS_PER_QUESTION,
     myAnswered: mine.answers.length, oppAnswered: theirs.answers.length,
@@ -302,7 +334,7 @@ async function api(req, res, url) {
     const key = username.toLowerCase();
     if (Object.keys(db.users).some(u => u.toLowerCase() === key)) return send(res, 409, { error: 'اسم المستخدم مستخدم بالفعل' });
     const salt = crypto.randomBytes(16).toString('hex');
-    db.users[username] = { salt, hash: hashPw(password, salt), wins: 0, losses: 0, draws: 0, created: now() };
+    db.users[username] = { salt, hash: hashPw(password, salt), id: newUserId(), displayName: username, wins: 0, losses: 0, draws: 0, created: now() };
     const token = newToken(); db.sessions[token] = username; save();
     return send(res, 200, { ok: true }, cookie(token, 60 * 60 * 24 * 30));
   }
@@ -319,27 +351,93 @@ async function api(req, res, url) {
   if (url === '/api/logout' && req.method === 'POST') {
     const c = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('sid='));
     if (c) { delete db.sessions[c.slice(4)]; save(); }
-    if (me) queue.delete(me);
+    if (me) { queue.delete(me); invites.delete(me); lastSeen.delete(me); }
     return send(res, 200, { ok: true }, cookie('', 0));
   }
 
   if (!me) return send(res, 401, { error: 'غير مسجّل' });
+  lastSeen.set(me, now());
 
   if (url === '/api/state' && req.method === 'GET') {
+    cleanInvites();
     const u = db.users[me];
-    const profile = { username: me, wins: u.wins, losses: u.losses, draws: u.draws };
+    const profile = { name: u.displayName, id: u.id, wins: u.wins, losses: u.losses, draws: u.draws };
+    const extra = { profile, notices: notices.get(me) || [] };
+    notices.delete(me);
+    const inc = incomingFor(me);
+    if (inc && !userMatch.has(me)) extra.invite = { fromName: dn(inc.from), fromId: db.users[inc.from].id, catName: (catByName2(inc.cat) || {}).name || '', remainingMs: Math.max(0, INVITE_MS - (now() - inc.at)) };
     const mid = userMatch.get(me);
-    if (mid) return send(res, 200, { profile, status: 'match', match: viewFor(db.matches[mid], me) });
+    if (mid) return send(res, 200, Object.assign(extra, { status: 'match', match: viewFor(db.matches[mid], me) }));
+    const out = invites.get(me);
+    if (out) return send(res, 200, Object.assign(extra, { status: 'invited', toName: dn(out.to), catName: (catByName2(out.cat) || {}).name || '', remainingMs: Math.max(0, INVITE_MS - (now() - out.at)) }));
     if (queue.has(me)) {
       const cat = queue.get(me).cat;
-      // قد يكون لاعب آخر دخل الطابور للتو
-      const m = tryMatchmake(me, cat);
-      if (m) return send(res, 200, { profile, status: 'match', match: viewFor(m, me) });
-      return send(res, 200, { profile, status: 'waiting', catName: (catByName2(cat) || {}).name || '' });
+      const m = tryMatchmake(me, cat); // قد يكون لاعب آخر دخل الطابور للتو
+      if (m) return send(res, 200, Object.assign(extra, { status: 'match', match: viewFor(m, me) }));
+      return send(res, 200, Object.assign(extra, { status: 'waiting', catName: (catByName2(cat) || {}).name || '' }));
     }
-    // آخر مباراة منتهية (لعرض النتيجة)
-    const last = db.users[me].lastMatch && db.matches[db.users[me].lastMatch];
-    return send(res, 200, { profile, status: 'idle', last: last && last.status === 'finished' ? viewFor(last, me) : null });
+    const last = u.lastMatch && db.matches[u.lastMatch];
+    return send(res, 200, Object.assign(extra, { status: 'idle', last: last && last.status === 'finished' ? viewFor(last, me) : null }));
+  }
+
+  if (url === '/api/players' && req.method === 'GET') {
+    const order = { searching: 0, online: 1, playing: 2, offline: 3 };
+    const rows = Object.entries(db.users).map(([u, x]) => ({ id: x.id, name: x.displayName, status: statusOf(u), wins: x.wins, losses: x.losses, me: u === me }))
+      .sort((a, b) => order[a.status] - order[b.status] || b.wins - a.wins).slice(0, 200);
+    return send(res, 200, { rows });
+  }
+  if (url === '/api/invite' && req.method === 'POST') {
+    const b = await readBody(req);
+    if (userMatch.has(me)) return send(res, 409, { error: 'أنت في مباراة الآن' });
+    const to = userById(String(b.toId || '').trim());
+    if (!to) return send(res, 404, { error: 'لا يوجد لاعب بهذا الـID' });
+    if (to === me) return send(res, 400, { error: 'لا يمكنك دعوة نفسك' });
+    const c = catByName2(b.cat);
+    if (!c) return send(res, 400, { error: 'اختر مجموعة' });
+    if (loadQuestions(c.id).length < MIN_QUESTIONS_TO_PLAY) return send(res, 503, { error: 'هذه المجموعة لا تحتوي أسئلة كافية بعد' });
+    cleanInvites();
+    if (userMatch.has(to)) return send(res, 409, { error: 'اللاعب في مباراة الآن' });
+    const ex = incomingFor(to);
+    if (ex && ex.from !== me) return send(res, 409, { error: 'لدى اللاعب دعوة أخرى معلّقة، حاول بعد قليل' });
+    queue.delete(me); invites.set(me, { from: me, to, cat: c.id, at: now() });
+    return send(res, 200, { ok: true });
+  }
+  if (url === '/api/invite/cancel' && req.method === 'POST') { invites.delete(me); return send(res, 200, { ok: true }); }
+  if (url === '/api/invite/respond' && req.method === 'POST') {
+    const b = await readBody(req);
+    cleanInvites();
+    const iv = incomingFor(me);
+    if (!iv) return send(res, 404, { error: 'انتهت الدعوة أو أُلغيت' });
+    invites.delete(iv.from);
+    if (!b.accept) { notify(iv.from, dn(me) + ' رفض التحدّي'); return send(res, 200, { ok: true }); }
+    if (userMatch.has(me) || userMatch.has(iv.from)) return send(res, 409, { error: 'أحد اللاعبين في مباراة الآن' });
+    if (loadQuestions(iv.cat).length < MIN_QUESTIONS_TO_PLAY) return send(res, 503, { error: 'لا توجد أسئلة كافية' });
+    queue.delete(me); queue.delete(iv.from);
+    createMatch(iv.from, me, iv.cat);
+    return send(res, 200, { ok: true });
+  }
+  if (url === '/api/profile/name' && req.method === 'POST') {
+    if (tooMany(ip)) return send(res, 429, { error: 'محاولات كثيرة، انتظر قليلاً' });
+    const b = await readBody(req);
+    const name = String(b.name || '').trim().replace(/ +/g, ' ');
+    if (!NAME_RE.test(name)) return send(res, 400, { error: 'الاسم من 2 إلى 20 حرفاً (حروف أو أرقام أو _ أو مسافة)' });
+    const key = name.toLowerCase();
+    if (Object.entries(db.users).some(([u, x]) => u !== me && x.displayName.toLowerCase() === key)) return send(res, 409, { error: 'الاسم مستخدم بالفعل' });
+    db.users[me].displayName = name; save();
+    return send(res, 200, { ok: true, name });
+  }
+  if (url === '/api/profile/password' && req.method === 'POST') {
+    if (tooMany(ip)) return send(res, 429, { error: 'محاولات كثيرة، انتظر قليلاً' });
+    const b = await readBody(req); const u = db.users[me];
+    if (typeof b.oldPassword !== 'string' || !crypto.timingSafeEqual(Buffer.from(hashPw(b.oldPassword, u.salt), 'hex'), Buffer.from(u.hash, 'hex')))
+      return send(res, 401, { error: 'كلمة المرور الحالية غير صحيحة' });
+    if (typeof b.newPassword !== 'string' || b.newPassword.length < 6) return send(res, 400, { error: 'كلمة المرور الجديدة 6 أحرف على الأقل' });
+    u.salt = crypto.randomBytes(16).toString('hex'); u.hash = hashPw(b.newPassword, u.salt);
+    const c = (req.headers.cookie || '').split(';').map(s => s.trim()).find(s => s.startsWith('sid='));
+    const cur = c ? c.slice(4) : '';
+    for (const [t, name] of Object.entries(db.sessions)) if (name === me && t !== cur) delete db.sessions[t]; // نُنهي الجلسات الأخرى
+    save();
+    return send(res, 200, { ok: true });
   }
 
   if (url === '/api/queue/join' && req.method === 'POST') {
@@ -348,7 +446,7 @@ async function api(req, res, url) {
     const c = catByName2(b.cat);
     if (!c) return send(res, 400, { error: 'اختر مجموعة' });
     if (loadQuestions(c.id).length < MIN_QUESTIONS_TO_PLAY) return send(res, 503, { error: 'هذه المجموعة لا تحتوي أسئلة كافية بعد' });
-    queue.delete(me);
+    queue.delete(me); invites.delete(me);
     tryMatchmake(me, c.id);
     return send(res, 200, { ok: true });
   }
@@ -379,7 +477,7 @@ async function api(req, res, url) {
   }
   if (url === '/api/leaderboard' && req.method === 'GET') {
     const rows = Object.entries(db.users)
-      .map(([name, u]) => ({ name, wins: u.wins, losses: u.losses, draws: u.draws }))
+      .map(([, u]) => ({ name: u.displayName, id: u.id, wins: u.wins, losses: u.losses, draws: u.draws }))
       .sort((a, b) => b.wins - a.wins || a.losses - b.losses).slice(0, 20);
     return send(res, 200, { rows });
   }
