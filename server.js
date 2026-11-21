@@ -5,7 +5,9 @@ const path = require('path');
 const crypto = require('crypto');
 
 const PORT = process.env.PORT || 3000;
-const DATA_FILE = process.env.DATA_FILE || path.join(__dirname, 'data.json');
+// مكان حفظ البيانات: DATA_FILE إن وُجد، وإلا مسار الـVolume على Railway تلقائياً، وإلا ملف محلي
+const DATA_FILE = process.env.DATA_FILE ||
+  (process.env.RAILWAY_VOLUME_MOUNT_PATH ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'data.json') : path.join(__dirname, 'data.json'));
 const QUESTIONS_FILE = path.join(__dirname, 'questions.json');
 
 const QUESTIONS_PER_MATCH = 15;
@@ -497,5 +499,5 @@ const server = http.createServer(async (req, res) => {
     });
   } catch (e) { console.error(e); send(res, 500, { error: 'خطأ في الخادم' }); }
 });
-if (require.main === module) server.listen(PORT, () => console.log('Quiz Battle running on http://localhost:' + PORT));
+if (require.main === module) server.listen(PORT, () => console.log('Quiz Battle running on port ' + PORT + ' | data file: ' + DATA_FILE));
 module.exports = server;
